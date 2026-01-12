@@ -239,3 +239,4 @@ async function init() {
 init().catch(() => {
   setPanelEmpty("Error al iniciar la página");
 });
+
