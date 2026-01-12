@@ -1,64 +1,83 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Cotizacion en tiempo real</title>
-  <link rel="stylesheet" href="styles.css" />
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cotización en tiempo real</title>
+    <link rel="stylesheet" href="./styles.css" />
 
-  <!-- D3 + TopoJSON (CDN) -->
-  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
-</head>
-<body>
-  <header class="header">
-    <h1 class="title">Cotizacion en tiempo real</h1>
+    <!-- D3 + TopoJSON (solo lectura, perfecto para GitHub Pages) -->
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+  </head>
 
-    <div class="utc">
-      <div class="utc-label">UTC (Meridiano 0)</div>
-      <div class="utc-time" id="utcTime">--:--:--</div>
-      <div class="utc-date" id="utcDate">----</div>
-    </div>
-  </header>
-
-  <main class="layout">
-    <section class="map-card">
-      <div class="map-wrap">
-        <svg id="map" aria-label="Mapa de Sudamérica"></svg>
+  <body>
+    <header class="header">
+      <h1 class="title">Cotización en tiempo real</h1>
+      <div class="utc">
+        <span class="utc-label">UTC (meridiano 0):</span>
+        <span id="utcClock" class="utc-value">—</span>
       </div>
-      <div class="hint">Tocá un país para ver la cotización.</div>
-    </section>
+    </header>
 
-    <aside class="panel">
-      <div class="panel-block">
-        <div class="panel-title">País</div>
-        <div class="panel-value" id="countryName">Seleccioná un país</div>
-      </div>
-
-      <div class="panel-block">
-        <div class="panel-title">Moneda local</div>
-        <div class="panel-value" id="currencyCode">—</div>
-      </div>
-
-      <div class="panel-block">
-        <div class="panel-title">USD (venta / referencia)</div>
-        <div class="panel-value big" id="usdRate">—</div>
-        <div class="panel-sub" id="rateNote"></div>
-      </div>
-
-      <div class="panel-block">
-        <div class="panel-title">Última actualización</div>
-        <div class="panel-value" id="lastUpdate">—</div>
-      </div>
-
-      <div class="panel-footer">
-        <div class="small">
-          Fuente: ExchangeRate-API (open access). Puede ser cotización de referencia, no necesariamente “venta” bancaria.
+    <main class="layout">
+      <section class="mapWrap" aria-label="Mapa de Sudamérica">
+        <div class="mapCard">
+          <svg id="mapSvg" role="img" aria-label="Mapa interactivo de Sudamérica"></svg>
+          <div class="hint">Tocá un país para ver la cotización.</div>
         </div>
-      </div>
-    </aside>
-  </main>
+      </section>
 
-  <script src="script.js"></script>
-</body>
+      <aside class="panel" aria-label="Panel de cotización">
+        <div class="panelTop">
+          <img
+            id="countryFlag"
+            class="flag"
+            src=""
+            alt=""
+            width="40"
+            height="30"
+            loading="lazy"
+          />
+          <div class="panelHead">
+            <div id="countryName" class="countryName">Seleccioná un país</div>
+            <div id="countryMeta" class="countryMeta">—</div>
+          </div>
+        </div>
+
+        <div class="panelBody">
+          <div class="metric">
+            <div class="metricLabel">USD (venta / referencia)</div>
+            <div id="rateValue" class="metricValue">—</div>
+            <div id="rateSub" class="metricSub">—</div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="smallGrid">
+            <div class="smallItem">
+              <div class="smallLabel">Última actualización</div>
+              <div id="lastUpdate" class="smallValue">—</div>
+            </div>
+            <div class="smallItem">
+              <div class="smallLabel">Próxima actualización</div>
+              <div id="nextUpdate" class="smallValue">—</div>
+            </div>
+          </div>
+        </div>
+
+        <footer class="footer">
+          <a
+            class="attrib"
+            href="https://www.exchangerate-api.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Rates by Exchange Rate API</a
+          >
+        </footer>
+      </aside>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
 </html>

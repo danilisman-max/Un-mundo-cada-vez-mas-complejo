@@ -1,163 +1,241 @@
-// ====== Config ======
+// -------------------------------
+// Config
+// -------------------------------
+const WORLD_ATLAS_URL =
+  "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
 
-// API sin key (open access). Docs: ExchangeRate-API Open Access
-// Endpoint típico: https://open.er-api.com/v6/latest/USD
+// Open Access ExchangeRate-API (sin key)
 const RATES_URL = "https://open.er-api.com/v6/latest/USD";
 
-// Países (Sudamérica) + moneda local (ISO 4217)
+// Sudamérica (incluye Guayana Francesa como territorio; moneda EUR)
 const SOUTH_AMERICA = [
-  { name: "Argentina", currency: "ARS" },
-  { name: "Bolivia", currency: "BOB" },
-  { name: "Brazil", currency: "BRL" },
-  { name: "Chile", currency: "CLP" },
-  { name: "Colombia", currency: "COP" },
-  { name: "Ecuador", currency: "USD" },
-  { name: "Guyana", currency: "GYD" },
-  { name: "Paraguay", currency: "PYG" },
-  { name: "Peru", currency: "PEN" },
-  { name: "Suriname", currency: "SRD" },
-  { name: "Uruguay", currency: "UYU" },
-  { name: "Venezuela", currency: "VES" },
+  { name: "Argentina", iso2: "AR", currency: "ARS" },
+  { name: "Bolivia", iso2: "BO", currency: "BOB" },
+  { name: "Brazil", iso2: "BR", currency: "BRL" },
+  { name: "Chile", iso2: "CL", currency: "CLP" },
+  { name: "Colombia", iso2: "CO", currency: "COP" },
+  { name: "Ecuador", iso2: "EC", currency: "USD" },
+  { name: "Guyana", iso2: "GY", currency: "GYD" },
+  { name: "Paraguay", iso2: "PY", currency: "PYG" },
+  { name: "Peru", iso2: "PE", currency: "PEN" },
+  { name: "Suriname", iso2: "SR", currency: "SRD" },
+  { name: "Uruguay", iso2: "UY", currency: "UYU" },
+  { name: "Venezuela", iso2: "VE", currency: "VES" },
+  // Territorio (si aparece en el topojson como French Guiana)
+  { name: "French Guiana", iso2: "GF", currency: "EUR" },
 ];
 
-// Nombres tal como vienen en el dataset (Natural Earth / world-atlas)
-const NAME_TO_CURRENCY = new Map(SOUTH_AMERICA.map(x => [x.name, x.currency]));
+const NAME_TO_INFO = new Map(SOUTH_AMERICA.map((c) => [c.name, c]));
 
-// UI
-const elCountry = document.getElementById("countryName");
-const elCurrency = document.getElementById("currencyCode");
-const elRate = document.getElementById("usdRate");
-const elLastUpdate = document.getElementById("lastUpdate");
-const elRateNote = document.getElementById("rateNote");
+// -------------------------------
+// DOM
+// -------------------------------
+const svg = d3.select("#mapSvg");
+const utcClock = document.getElementById("utcClock");
 
-const elUtcTime = document.getElementById("utcTime");
-const elUtcDate = document.getElementById("utcDate");
+const countryFlag = document.getElementById("countryFlag");
+const countryName = document.getElementById("countryName");
+const countryMeta = document.getElementById("countryMeta");
 
-// Estado
-let rates = null;
-let lastUpdateUtc = null;
+const rateValue = document.getElementById("rateValue");
+const rateSub = document.getElementById("rateSub");
+const lastUpdate = document.getElementById("lastUpdate");
+const nextUpdate = document.getElementById("nextUpdate");
 
-// ====== UTC Clock ======
+// -------------------------------
+// UTC clock
+// -------------------------------
 function tickUTC() {
   const now = new Date();
-  // ISO: YYYY-MM-DDTHH:mm:ss.sssZ
-  const iso = now.toISOString();
-  const date = iso.slice(0, 10);
-  const time = iso.slice(11, 19);
-  elUtcDate.textContent = date;
-  elUtcTime.textContent = time;
+  // Ej: Mon, 12 Jan 2026 20:14:05 GMT
+  utcClock.textContent = now.toUTCString();
 }
 tickUTC();
 setInterval(tickUTC, 1000);
 
-// ====== Fetch rates ======
-async function fetchRates() {
-  try {
-    const res = await fetch(RATES_URL, { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+// -------------------------------
+// Rates cache
+// -------------------------------
+let ratesPayload = null;
 
-    // Formato esperado: { result, time_last_update_utc, rates: {...} }
-    rates = data.rates || null;
-    lastUpdateUtc = data.time_last_update_utc || null;
-
-    elLastUpdate.textContent = lastUpdateUtc ? lastUpdateUtc : "—";
-    elRateNote.textContent = "Tocá un país para ver 1 USD en su moneda.";
-  } catch (err) {
-    console.error(err);
-    elLastUpdate.textContent = "Error al cargar cotizaciones";
-    elRateNote.textContent = "Revisá conexión o CORS de la API.";
-  }
-}
-fetchRates();
-// Refrescá cada 10 min (sin castigar la API)
-setInterval(fetchRates, 10 * 60 * 1000);
-
-// ====== Map (D3 + TopoJSON) ======
-const svg = d3.select("#map");
-const width = 900;
-const height = 520;
-
-svg.attr("viewBox", `0 0 ${width} ${height}`);
-
-const g = svg.append("g");
-
-// Proyección: ajusta Sudamérica a la pantalla
-const projection = d3.geoMercator()
-  .center([-60, -15])
-  .scale(420)
-  .translate([width / 2, height / 2 + 10]);
-
-const path = d3.geoPath(projection);
-
-let selected = null;
-
-function formatRate(value) {
-  if (value == null || Number.isNaN(value)) return "—";
-  // máximo 4 decimales, pero si es muy grande (ej CLP/COP) se ve mejor con 2
-  const digits = value >= 100 ? 2 : 4;
-  return new Intl.NumberFormat("es-ES", { maximumFractionDigits: digits }).format(value);
+async function loadRates() {
+  const resp = await fetch(RATES_URL, { cache: "no-store" });
+  if (!resp.ok) throw new Error("No se pudieron cargar las cotizaciones.");
+  ratesPayload = await resp.json();
 }
 
-function showCountry(name) {
-  const currency = NAME_TO_CURRENCY.get(name);
-  elCountry.textContent = name || "—";
-  elCurrency.textContent = currency || "—";
+function getRateFor(currencyCode) {
+  if (!ratesPayload || !ratesPayload.rates) return null;
+  if (currencyCode === "USD") return 1;
+  return ratesPayload.rates[currencyCode] ?? null;
+}
 
-  if (!currency) {
-    elRate.textContent = "—";
-    elRateNote.textContent = "Este país no está en la lista de Sudamérica configurada.";
+function formatMoney(num) {
+  // Formato sobrio: separadores y hasta 4 decimales si hace falta
+  const abs = Math.abs(num);
+  const decimals = abs >= 100 ? 2 : abs >= 1 ? 4 : 6;
+  return new Intl.NumberFormat("es-ES", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: decimals,
+  }).format(num);
+}
+
+function setPanelEmpty(msg = "Seleccioná un país") {
+  countryName.textContent = msg;
+  countryMeta.textContent = "—";
+  rateValue.textContent = "—";
+  rateSub.textContent = "—";
+  lastUpdate.textContent = "—";
+  nextUpdate.textContent = "—";
+  countryFlag.src = "";
+  countryFlag.alt = "";
+}
+
+function setPanelForCountry(featureName) {
+  const info = NAME_TO_INFO.get(featureName);
+  if (!info) {
+    setPanelEmpty("País no disponible");
     return;
   }
 
-  if (!rates) {
-    elRate.textContent = "—";
-    elRateNote.textContent = "Todavía no cargaron las cotizaciones.";
+  const rate = getRateFor(info.currency);
+
+  countryName.textContent =
+    featureName === "Brazil" ? "Brasil" :
+    featureName === "Peru" ? "Perú" :
+    featureName === "French Guiana" ? "Guayana Francesa" :
+    featureName;
+
+  countryMeta.textContent = `Moneda: ${info.currency} · Base: USD`;
+
+  // Bandera (FlagCDN)
+  countryFlag.src = `https://flagcdn.com/w40/${info.iso2.toLowerCase()}.png`;
+  countryFlag.alt = `Bandera de ${countryName.textContent}`;
+
+  if (!ratesPayload || ratesPayload.result !== "success") {
+    rateValue.textContent = "—";
+    rateSub.textContent = "No hay datos de cotización.";
     return;
   }
 
-  const value = rates[currency];
-  // 1 USD = value * currency
-  elRate.textContent = value != null ? `1 USD = ${formatRate(value)} ${currency}` : "—";
-  elRateNote.textContent = "Cotización de referencia (no necesariamente el precio bancario de venta).";
+  // Título del usuario: “precio del dólar respecto a la moneda local”
+  // => mostramos 1 USD = X MONEDA
+  if (rate === null) {
+    rateValue.textContent = "No disponible";
+    rateSub.textContent = "La moneda no aparece en la fuente actual.";
+  } else {
+    rateValue.textContent = `${formatMoney(rate)} ${info.currency}`;
+    rateSub.textContent = `1 USD = ${formatMoney(rate)} ${info.currency}`;
+  }
+
+  lastUpdate.textContent = ratesPayload.time_last_update_utc ?? "—";
+  nextUpdate.textContent = ratesPayload.time_next_update_utc ?? "—";
 }
 
-function selectPath(d, node) {
-  if (selected) selected.classed("selected", false);
-  selected = d3.select(node).classed("selected", true);
-  showCountry(d.properties.name);
-}
+// -------------------------------
+// Map rendering
+// -------------------------------
+let activeCountryPath = null;
 
-async function drawMap() {
-  // Dataset mundo (TopoJSON) desde CDN
-  const world = await d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json");
-  const countries = topojson.feature(world, world.objects.countries);
+function renderMap(countriesGeoJson) {
+  // Limpieza
+  svg.selectAll("*").remove();
 
-  // Filtrar solo países de Sudamérica que nos interesan (por nombre)
-  const features = countries.features.filter(f => NAME_TO_CURRENCY.has(f.properties.name));
+  const wrap = document.querySelector(".mapCard");
+  const width = wrap.clientWidth;
+  const height = wrap.clientHeight;
 
-  // Dibujar
-  g.selectAll("path")
-    .data(features)
-    .join("path")
-    .attr("class", "country")
+  svg.attr("viewBox", `0 0 ${width} ${height}`);
+
+  const projection = d3.geoMercator();
+  projection.fitSize([width, height], countriesGeoJson);
+
+  const path = d3.geoPath(projection);
+
+  const g = svg.append("g");
+
+  // Fondo “sutil” (no obligatorio, pero da legibilidad)
+  g.append("rect")
+    .attr("x", 0)
+    .attr("y", 0)
+    .attr("width", width)
+    .attr("height", height)
+    .attr("fill", "transparent");
+
+  const paths = g
+    .selectAll("path")
+    .data(countriesGeoJson.features)
+    .enter()
+    .append("path")
     .attr("d", path)
-    .on("click", function(event, d) { selectPath(d, this); })
-    .append("title")
-    .text(d => d.properties.name);
+    .attr("fill", "var(--country)")
+    .attr("stroke", "var(--stroke)")
+    .attr("stroke-width", 1)
+    .style("cursor", "pointer")
+    .on("mouseenter", function () {
+      if (this !== activeCountryPath) {
+        d3.select(this).attr("fill", "var(--countryHover)");
+      }
+    })
+    .on("mouseleave", function () {
+      if (this !== activeCountryPath) {
+        d3.select(this).attr("fill", "var(--country)");
+      }
+    })
+    .on("click", function (event, d) {
+      // Desactivar anterior
+      if (activeCountryPath) d3.select(activeCountryPath).attr("fill", "var(--country)");
+      activeCountryPath = this;
+      d3.select(this).attr("fill", "var(--countryActive)");
 
-  // Si querés que arranque con Argentina seleccionada:
-  const defaultName = "Argentina";
-  const defaultFeature = features.find(f => f.properties.name === defaultName);
-  if (defaultFeature) {
-    // Buscar su path y seleccionarlo
-    const nodes = g.selectAll("path").nodes();
-    const idx = features.findIndex(f => f.properties.name === defaultName);
-    if (idx >= 0) selectPath(defaultFeature, nodes[idx]);
-  }
+      setPanelForCountry(d.properties.name);
+    });
+
+  // Mejor toque en móvil: aumenta el área clickeable sin arruinar estética
+  paths.attr("pointer-events", "all");
 }
 
-drawMap().catch(err => {
-  console.error(err);
-  elRateNote.textContent = "Error cargando el mapa (CDN).";
+async function init() {
+  setPanelEmpty("Cargando…");
+
+  // 1) Rates
+  try {
+    await loadRates();
+  } catch (e) {
+    // Igual dejamos el mapa usable; el panel avisará sin romper la UI
+    ratesPayload = null;
+  }
+
+  // 2) Map (TopoJSON -> GeoJSON)
+  const topoResp = await fetch(WORLD_ATLAS_URL);
+  if (!topoResp.ok) throw new Error("No se pudo cargar el mapa base.");
+  const topo = await topoResp.json();
+
+  const allCountries = topojson.feature(topo, topo.objects.countries);
+
+  // Filtrar a Sudamérica por nombre
+  const wantedNames = new Set(SOUTH_AMERICA.map((c) => c.name));
+  const saFeatures = allCountries.features.filter((f) =>
+    wantedNames.has(f.properties.name)
+  );
+
+  // Si por alguna razón faltan nombres, al menos no rompemos
+  const saGeo = { type: "FeatureCollection", features: saFeatures };
+
+  // Render inicial
+  renderMap(saGeo);
+
+  // Panel inicial listo
+  setPanelEmpty("Seleccioná un país");
+
+  // Re-render al cambiar tamaño (mobile rotate / resize)
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => renderMap(saGeo), 120);
+  });
+}
+
+init().catch(() => {
+  setPanelEmpty("Error al iniciar la página");
 });
